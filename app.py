@@ -40,7 +40,7 @@ def require_basic_auth(f):
             return Response(
                 "Unauthorized", 
                 401, 
-                {"WWW-Authenticate": 'Basic realm="Login Required"'}
+                {"WWW-Authenticate": "Login Required"}
             )
         stored_password = user.get("password")
         if isinstance(stored_password, bytes):
@@ -49,7 +49,7 @@ def require_basic_auth(f):
                 return Response(
                     "Unauthorized", 
                     401, 
-                    {"WWW-Authenticate": 'Basic realm="Login Required"'}
+                    {"WWW-Authenticate": "Login Required"}
                 )
         else:
             
@@ -57,7 +57,7 @@ def require_basic_auth(f):
                 return Response(
                     "Unauthorized", 
                     401, 
-                    {"WWW-Authenticate": 'Basic realm="Login Required"'}
+                    {"WWW-Authenticate": "Login Required"}
                 )
         return f(*args, **kwargs)
     return decorated
