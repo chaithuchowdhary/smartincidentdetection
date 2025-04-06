@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import io from 'socket.io-client';
 
-const socket = io('http://localhost:5000');
+const socket = io('http://192.168.59.150:5000');
 
 function IncidentList() {
   const [incidents, setIncidents] = useState([]); 
@@ -9,7 +9,7 @@ function IncidentList() {
 
   
   const fetchIncidents = async () => {
-    const url = 'http://localhost:5000/incidents'; 
+    const url = 'http://192.168.59.150:5000/incidents'; 
     const username = 'admin'; 
     const password = 'password'; 
 

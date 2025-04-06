@@ -9,7 +9,7 @@ import os
 from pushbullet import Pushbullet
 from pymongo import MongoClient
 from flask_socketio import SocketIO, emit
-from flask_cors import CORS
+from flask_cors import CORS, cross_origin
 import tempfile 
 
 mongo_client = MongoClient("mongodb://localhost:27017/")
@@ -112,6 +112,7 @@ def encode_image(file_obj):
     return base64.b64encode(file_obj.read()).decode("utf-8")
     
 @app.route('/analyze', methods=['POST'])
+@cross_origin()
 @require_basic_auth
 def analyze():
     if 'image' not in request.files:
@@ -203,6 +204,7 @@ def analyze():
         return jsonify({"message": "No emergency detected", "keywords": result.get("keywords", [])}), 200
     
 @app.route('/incidents', methods=['GET'])
+@cross_origin()
 @require_basic_auth
 def get_incidents():
     incidents = list(collection.find({}))
