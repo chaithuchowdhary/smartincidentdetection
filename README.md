@@ -12,8 +12,8 @@ Ensure you have the following installed:
 
 1. Clone the repository:
     ```bash
-    git clone https://github.com/your-repo/incident-detection.git
-    cd incident-detection
+    git clone https://github.com/chaithuchowdhary/smartincidentdetection.git
+    cd smartincidentdetection
     ```
 
 2. Install dependencies:
