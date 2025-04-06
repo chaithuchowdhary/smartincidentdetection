@@ -8,7 +8,9 @@ from dotenv import load_dotenv
 import os
 from pushbullet import Pushbullet
 from pymongo import MongoClient
-from bson import ObjectId
+from flask_socketio import SocketIO, emit
+from flask_cors import CORS
+import tempfile 
 
 mongo_client = MongoClient("mongodb://localhost:27017/")
 db = mongo_client["smartincidentdetection"]
@@ -18,6 +20,10 @@ users_collection = db["user"]
 load_dotenv()
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = os.getenv("SECRET_KEY")
+socketio = SocketIO(app, cors_allowed_origins="*")
+app.config['CORS_HEADERS'] = 'Content-Type'
+CORS(app, origins="*", methods=["GET", "POST"], supports_credentials=True)
 
 key = os.getenv("OPEN_API_KEY")
 openai.api_key = key
@@ -63,7 +69,7 @@ def require_basic_auth(f):
     return decorated
 
 
-def send_push_to_channel(title, message):
+def send_push_to_channel(title, message, base64_image):
     print("Connecting to pushbullet...")
 
     channels = pb.channels
@@ -73,11 +79,31 @@ def send_push_to_channel(title, message):
     if channel:
         print(f"Found channel: {channel.name}")
         try:
-            push = pb.push_note(title, message, channel=channel)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
+                temp_file.write(base64.b64decode(base64_image))
+                temp_file_path = temp_file.name
+
+            # Upload the file to get the file_url and other details.
+            with open(temp_file_path, "rb") as f:
+                file_data = pb.upload_file(f, "incident.jpg", "image/jpeg")
+
+            # Use the returned file_data in push_file; note there's no 'file' parameter.
+            push = pb.push_file(
+                file_name=file_data["file_name"],
+                file_type=file_data["file_type"],
+                file_url=file_data["file_url"],
+                title=title,
+                body=message,
+                channel=channel
+            )
             print("Push sent! Response:")
             print(push)
         except Exception as e:
             print(f"Failed to send push: {e}")
+        finally:
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+
     else:
         print("Channel not found. Make sure this API key is linked to a user subscribed to @untdemoalert.")
 
@@ -147,6 +173,8 @@ def analyze():
     except Exception as e:
         return jsonify({"error": "Failed to parse response", "details": str(e)}), 500
     
+    
+
     collection.insert_one({
         "emergency": result.get("decision", None),
         "location": request.form['location'],
@@ -156,15 +184,31 @@ def analyze():
     })
 
     if result.get("decision") == "emergency":
-        send_push_to_channel("Emergency Alert",f"Emergency detected at {request.form['location']}! Keywords: {', '.join(result.get('keywords', []))}")
+        send_push_to_channel("Emergency Alert",f"Emergency detected at {request.form['location']}! Keywords: {', '.join(result.get('keywords', []))}",base64_image)
         payload = {
             "event": "emergency_detected",
             "keywords": result.get("keywords", []),
             "location": request.form['location']
         }
+        incident = {
+            "emergency": result.get("decision", None),
+            "location": request.form['location'],
+            "keywords": result.get("keywords", []),
+            "decision": result.get("decision", None),
+            "image": base64_image
+        }
+        socketio.emit("new_incident",incident)
         return jsonify(payload), 200
     else:
         return jsonify({"message": "No emergency detected", "keywords": result.get("keywords", [])}), 200
+    
+@app.route('/incidents', methods=['GET'])
+@require_basic_auth
+def get_incidents():
+    incidents = list(collection.find({}))
+    for inc in incidents:
+        inc["_id"] = str(inc["_id"])
+    return jsonify(incidents)
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0",debug=True, port=5000)
