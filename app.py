@@ -1,10 +1,19 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
+from functools import wraps
+import bcrypt
 import openai
 import base64
 import json
 from dotenv import load_dotenv
 import os
 from pushbullet import Pushbullet
+from pymongo import MongoClient
+from bson import ObjectId
+
+mongo_client = MongoClient("mongodb://localhost:27017/")
+db = mongo_client["smartincidentdetection"]
+collection = db["incidents"]
+users_collection = db["user"]
 
 load_dotenv()
 
@@ -15,6 +24,44 @@ openai.api_key = key
 
 API_KEY = os.getenv("PUSH_BULLET_KEY")
 pb = Pushbullet(API_KEY)
+
+def require_basic_auth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth = request.authorization
+        if not auth:
+            return Response(
+                "Missing credentials", 
+                401, 
+                {"WWW-Authenticate": 'Basic realm="Login Required"'}
+            )
+        user = users_collection.find_one({"username": auth.username})
+        if not user:
+            return Response(
+                "Unauthorized", 
+                401, 
+                {"WWW-Authenticate": 'Basic realm="Login Required"'}
+            )
+        stored_password = user.get("password")
+        if isinstance(stored_password, bytes):
+
+            if not bcrypt.checkpw(auth.password.encode('utf-8'), stored_password):
+                return Response(
+                    "Unauthorized", 
+                    401, 
+                    {"WWW-Authenticate": 'Basic realm="Login Required"'}
+                )
+        else:
+            
+            if auth.password != stored_password:
+                return Response(
+                    "Unauthorized", 
+                    401, 
+                    {"WWW-Authenticate": 'Basic realm="Login Required"'}
+                )
+        return f(*args, **kwargs)
+    return decorated
+
 
 def send_push_to_channel(title, message):
     print("Connecting to pushbullet...")
@@ -39,6 +86,7 @@ def encode_image(file_obj):
     return base64.b64encode(file_obj.read()).decode("utf-8")
     
 @app.route('/analyze', methods=['POST'])
+@require_basic_auth
 def analyze():
     if 'image' not in request.files:
         return jsonify({"error": "No image provided"}), 400
@@ -99,12 +147,20 @@ def analyze():
     except Exception as e:
         return jsonify({"error": "Failed to parse response", "details": str(e)}), 500
     
+    collection.insert_one({
+        "emergency": result.get("decision", None),
+        "location": request.form['location'],
+        "keywords": result.get("keywords", []),
+        "decision": result.get("decision", None),
+        "image": base64_image
+    })
+
     if result.get("decision") == "emergency":
         send_push_to_channel("Emergency Alert",f"Emergency detected at {request.form['location']}! Keywords: {', '.join(result.get('keywords', []))}")
         payload = {
             "event": "emergency_detected",
             "keywords": result.get("keywords", []),
-            "location": request.form['location'],
+            "location": request.form['location']
         }
         return jsonify(payload), 200
     else:
